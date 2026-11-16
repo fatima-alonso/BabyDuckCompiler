@@ -7,6 +7,7 @@ from BabyDuckLexer import BabyDuckLexer
 from BabyDuckParser import BabyDuckParser
 from SemanticAnalyzer import SemanticAnalyzer
 from FunctionCollector import FunctionCollector
+from QuadrupleGenerator import QuadrupleGenerator
 
 
 def main():
@@ -34,6 +35,7 @@ def main():
     tree = parser.programa()
 
     # 3. Análisis semántico
+        
     if parser.getNumberOfSyntaxErrors() == 0:
 
         print("Programa analizado correctamente.")
@@ -54,7 +56,7 @@ def main():
         # Combinar errores de ambos recorridos
         analyzer.errors = collector.errors + analyzer.errors
 
-        # Mostrar resultados
+        # Mostrar variables y funciones
         print("\nVariables globales:")
         print(analyzer.directory.global_table.symbols)
 
@@ -65,16 +67,32 @@ def main():
             print(f"\nVariables locales de {nombre}:")
             print(info["local_table"].symbols)
 
+        # Mostrar errores semánticos
         print("\nErrores semánticos:")
+
         if analyzer.errors:
             for error in analyzer.errors:
                 print(error)
+
         else:
             print("No se encontraron errores semánticos.")
 
+            # Tercer recorrido: generar cuádruplos
+            generator = QuadrupleGenerator(analyzer.directory)
+            walker.walk(generator, tree)
+
+            print("\nCuádruplos generados:")
+
+            for i, quad in enumerate(generator.Quad.get_all(), start=1):
+                print(f"{i}. {quad}")
+
+            if generator.errors:
+                print("\nErrores durante la generación:")
+                for error in generator.errors:
+                    print(error)
+
     else:
         print("El programa contiene errores de sintaxis.")
-
 
 if __name__ == "__main__":
     main()

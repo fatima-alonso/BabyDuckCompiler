@@ -1,16 +1,11 @@
 program prueba;
 
-int calcular(a: int) [
-    {
-        if (a > 0) {
-            return a;
-        }
-        return 10;
-    }
-];
+var a, b, c: int;
 
 main {
-    print(1);
+    if (a + b > c) {
+        a = 10;
+    }
 }
 
 end
