@@ -1,61 +1,80 @@
+import sys
+from pathlib import Path
+
 from antlr4 import InputStream, CommonTokenStream, ParseTreeWalker
 
 from BabyDuckLexer import BabyDuckLexer
 from BabyDuckParser import BabyDuckParser
 from SemanticAnalyzer import SemanticAnalyzer
+from FunctionCollector import FunctionCollector
 
 
-codigo = """
-program prueba;
+def main():
 
-var x: int;
+    # Obtener el archivo de entrada
+    if len(sys.argv) > 1:
+        archivo = Path(sys.argv[1])
+    else:
+        archivo = Path(__file__).parent / "prueba.txt"
 
-int suma(a: int, b: int) [
-    var resultado: int;
-    {
-        resultado = a + b;
-        return resultado;
-    }
-];
+    # Leer el código fuente
+    try:
+        codigo = archivo.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        print(f"Error: no se encontró el archivo {archivo}")
+        return
 
-main {
-    x = 10;
-}
-end
-"""
+    # 1. Lexer: convierte el código en tokens
+    input_stream = InputStream(codigo)
+    lexer = BabyDuckLexer(input_stream)
 
-# 1. Lexer: convierte el código en tokens
-input_stream = InputStream(codigo)
-lexer = BabyDuckLexer(input_stream)
+    # 2. Parser: construye el árbol sintáctico
+    tokens = CommonTokenStream(lexer)
+    parser = BabyDuckParser(tokens)
+    tree = parser.programa()
 
-# 2. Parser: construye el árbol sintáctico
-tokens = CommonTokenStream(lexer)
-parser = BabyDuckParser(tokens)
-tree = parser.programa()
+    # 3. Análisis semántico
+    if parser.getNumberOfSyntaxErrors() == 0:
 
-# 3. Semantic Analyzer: recorre el árbol
-if parser.getNumberOfSyntaxErrors() == 0:
+        print("Programa analizado correctamente.")
 
-    print("Programa analizado correctamente.")
+        walker = ParseTreeWalker()
 
-    analyzer = SemanticAnalyzer()
-    walker = ParseTreeWalker()
+        # Primer recorrido: registrar todas las funciones
+        collector = FunctionCollector()
+        walker.walk(collector, tree)
 
-    walker.walk(analyzer, tree)
+        # Segundo recorrido: realizar el análisis semántico
+        analyzer = SemanticAnalyzer(
+            collector.directory,
+            collector.valid_function_contexts
+        )
+        walker.walk(analyzer, tree)
 
-    # Mostrar resultados
-    print("\nVariables globales:")
-    print(analyzer.directory.global_table.symbols)
+        # Combinar errores de ambos recorridos
+        analyzer.errors = collector.errors + analyzer.errors
 
-    print("\nFunciones:")
-    print(analyzer.directory.functions.keys())
+        # Mostrar resultados
+        print("\nVariables globales:")
+        print(analyzer.directory.global_table.symbols)
 
-    for nombre, info in analyzer.directory.functions.items():
-        print(f"\nVariables locales de {nombre}:")
-        print(info["local_table"].symbols)
+        print("\nFunciones:")
+        print(analyzer.directory.functions.keys())
 
-    print("\nErrores semánticos:")
-    print(analyzer.errors)
+        for nombre, info in analyzer.directory.functions.items():
+            print(f"\nVariables locales de {nombre}:")
+            print(info["local_table"].symbols)
 
-else:
-    print("El programa contiene errores de sintaxis.")
+        print("\nErrores semánticos:")
+        if analyzer.errors:
+            for error in analyzer.errors:
+                print(error)
+        else:
+            print("No se encontraron errores semánticos.")
+
+    else:
+        print("El programa contiene errores de sintaxis.")
+
+
+if __name__ == "__main__":
+    main()

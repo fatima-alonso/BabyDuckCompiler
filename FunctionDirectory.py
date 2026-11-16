@@ -1,6 +1,5 @@
 from SymbolTable import SymbolTable
 
-
 class FunctionDirectory:
 
     def __init__(self):
@@ -18,6 +17,7 @@ class FunctionDirectory:
         if self.global_table.get_symbol(nombre) is not None:
             return False
 
+        # Crear tabla local de la función
         local_table = SymbolTable(parent=self.global_table)
 
         # Registrar parámetros en la tabla local
@@ -28,6 +28,7 @@ class FunctionDirectory:
             ):
                 return False
 
+        # Registrar función
         self.functions[nombre] = {
             "return_type": return_type,
             "parameters": parameters,
@@ -43,7 +44,6 @@ class FunctionDirectory:
     # Registrar una variable global
     def add_global_variable(self, nombre, tipo):
 
-        # Validar que no exista una función con ese nombre
         if nombre in self.functions:
             return False
 
@@ -54,7 +54,6 @@ class FunctionDirectory:
 
         function = self.get_function(function_name)
 
-        # Validar que la función exista
         if function is None:
             return False
 
