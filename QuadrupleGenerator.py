@@ -13,6 +13,9 @@ class QuadrupleGenerator(BabyDuckListener):
         self.PilaO = Stack()
         self.PTypes = Stack()
         self.Pjumps = Stack()
+        self.Pcycles = Stack()
+
+
 
         # Cola de cuádruplos
         self.Quad = Queue()
@@ -63,6 +66,102 @@ class QuadrupleGenerator(BabyDuckListener):
 
         return operands, types
 
+    
+    def process_function_call(self, ctx, use_result):
+
+        nombre = ctx.ID().getText()
+
+        # Obtener la información de la función
+        function = self.directory.get_function(nombre)
+
+        # Recuperar las expresiones que se pasan como argumentos
+        argumentos_ctx = ctx.argumentos_opt().argumentos()
+
+        if argumentos_ctx is not None:
+            cantidad = len(argumentos_ctx.expresion())
+        else:
+            cantidad = 0
+
+        # Recuperar operandos y tipos en el orden original
+        operands, types = self.get_operands(cantidad)
+
+        # Verificar que la función exista
+        if function is None:
+            self.errors.append(
+                f"Error: la función '{nombre}' no está declarada."
+            )
+            return None, None
+
+        parameters = function["parameters"]
+        return_type = function["return_type"]
+
+        # Verificar cantidad de argumentos
+        if cantidad != len(parameters):
+            self.errors.append(
+                f"Error: la función '{nombre}' espera "
+                f"{len(parameters)} argumentos, pero recibió {cantidad}."
+            )
+            return None, None
+
+        # Verificar tipos de los argumentos
+        for i, (argument_type, parameter) in enumerate(
+            zip(types, parameters)
+        ):
+            parameter_type = parameter["tipo"]
+
+            if not self.semantic_cube.can_assign(
+                parameter_type,
+                argument_type
+            ):
+                self.errors.append(
+                    f"Error: el argumento {i + 1} de la función "
+                    f"'{nombre}' debe ser de tipo '{parameter_type}', "
+                    f"pero se recibió '{argument_type}'."
+                )
+                return None, None
+
+        # Una función void no puede utilizarse como expresión
+        if use_result and return_type == "void":
+            self.errors.append(
+                f"Error: la función '{nombre}' no retorna un valor "
+                "y no puede utilizarse dentro de una expresión."
+            )
+            return None, None
+
+        # Reservar el espacio para ejecutar la función
+        self.generate_quad(
+            "ERA",
+            nombre,
+            "-",
+            "-"
+        )
+
+        # Pasar los argumentos a sus respectivos parámetros
+        for i, operand in enumerate(operands):
+            self.generate_quad(
+                "PARAM",
+                operand,
+                "-",
+                i + 1
+            )
+
+        # Preparar el temporal que recibirá el valor de retorno
+        if use_result:
+            result = self.new_temp()
+        else:
+            result = "-"
+
+        # Ejecutar la función
+        self.generate_quad(
+            "GOSUB",
+            nombre,
+            "-",
+            result
+        )
+
+        return result, return_type
+
+
     # Procesar factores
     def exitFactor(self, ctx):
 
@@ -95,7 +194,8 @@ class QuadrupleGenerator(BabyDuckListener):
             self.PTypes.push(tipo)
 
         # Los paréntesis ya fueron procesados por expresion.
-        # Las llamadas a funciones las agregaremos después.
+        # Las llamadas a funciones se procesan en exitF_call_sin_pyc.
+        # Su resultado ya queda en las pilas de operandos y tipos.
 
     # Procesar multiplicaciones y divisiones
     def exitTermino(self, ctx):
@@ -232,6 +332,104 @@ class QuadrupleGenerator(BabyDuckListener):
             "-",
             nombre
         )
+    
+
+    def exitArg_print(self, ctx):
+
+        # Caso 1: imprimir una cadena de texto
+        if ctx.CTE_STRING() is not None:
+
+            texto = ctx.CTE_STRING().getText()
+
+            self.generate_quad(
+                "PRINT",
+                texto,
+                "-",
+                "-"
+            )
+
+        # Caso 2: imprimir una expresión
+        elif ctx.expresion() is not None:
+
+            resultado = self.PilaO.pop()
+            tipo = self.PTypes.pop()
+
+            if resultado is not None and tipo is not None:
+
+                self.generate_quad(
+                    "PRINT",
+                    resultado,
+                    "-",
+                    "-"
+                )
+    
+    def exitRead_stmt(self, ctx):
+
+        nombre = ctx.ID().getText()
+
+        # Verificar que la variable esté declarada
+        variable = self.get_variable(nombre)
+
+        if variable is None:
+            self.errors.append(
+                f"Error: variable '{nombre}' no declarada."
+            )
+            return
+
+        # Generar cuádruplo de lectura
+        self.generate_quad(
+            "READ",
+            "-",
+            "-",
+            nombre
+        )
+
+    
+    def exitReturn_stmt(self, ctx):
+
+        # Recuperar el resultado de la expresión
+        resultado = self.PilaO.pop()
+        tipo = self.PTypes.pop()
+
+        # Verificar que exista un resultado válido
+        if resultado is None or tipo is None:
+            self.errors.append(
+                "Error: no se pudo generar el valor de retorno."
+            )
+            return
+
+        # Generar cuádruplo de retorno
+        self.generate_quad(
+            "RETURN",
+            resultado,
+            "-",
+            "-"
+        )
+
+    
+    # Llamada a función como una instrucción independiente
+    def exitF_call(self, ctx):
+
+        self.process_function_call(
+            ctx,
+            use_result=False
+        )
+
+
+    # Llamada a función dentro de una expresión
+    def exitF_call_sin_pyc(self, ctx):
+
+        resultado, tipo = self.process_function_call(
+            ctx,
+            use_result=True
+        )
+
+        if resultado is not None and tipo is not None:
+            self.PilaO.push(resultado)
+            self.PTypes.push(tipo)
+
+
+
 
     def exitExpresion(self, ctx):
 
@@ -283,7 +481,10 @@ class QuadrupleGenerator(BabyDuckListener):
 
        # Si esta expresión pertenece a la condición de un if,
         # generar el salto falso inmediatamente.
-        if ctx.parentCtx.__class__.__name__ == "ConditionContext":
+        if ctx.parentCtx.__class__.__name__ in (
+            "ConditionContext",
+            "CycleContext"
+        ):
             self.generate_false_jump()
 
     def fill_jump(self, position, destination):
@@ -299,6 +500,7 @@ class QuadrupleGenerator(BabyDuckListener):
 
         if ctx.ELSE() is None:
 
+            # IF sin ELSE
             if self.Pjumps.is_empty():
                 return
 
@@ -309,6 +511,48 @@ class QuadrupleGenerator(BabyDuckListener):
                 self.Quad.size() + 1
             )
 
+        else:
+
+            # IF-ELSE
+            if self.Pjumps.is_empty():
+                return
+
+            end = self.Pjumps.pop()
+
+            self.fill_jump(
+                end,
+                self.Quad.size() + 1
+            )
+    def enterCycle(self, ctx):
+
+        # Guardar la posición donde comienza el while
+        start = self.Quad.size() + 1
+
+        self.Pcycles.push(start)
+
+
+    def exitCycle(self, ctx):
+
+        # Recuperar la posición inicial del ciclo
+        return_position = self.Pcycles.pop()
+
+        # Generar salto incondicional al inicio del while
+        self.generate_quad(
+            "GOTO",
+            "-",
+            "-",
+            return_position
+        )
+
+        # Recuperar el GotoF generado por la condición
+        false_jump = self.Pjumps.pop()
+
+        # Completar el destino para salir del ciclo
+        self.fill_jump(
+            false_jump,
+            self.Quad.size() + 1
+        )
+
     def generate_false_jump(self):
 
         result = self.PilaO.pop()
@@ -316,7 +560,7 @@ class QuadrupleGenerator(BabyDuckListener):
 
         if exp_type != "bool":
             self.errors.append(
-                "Error: la condición del if debe ser de tipo bool."
+                "Error: la condición debe ser de tipo bool."
             )
             return
 
@@ -328,3 +572,42 @@ class QuadrupleGenerator(BabyDuckListener):
         )
 
         self.Pjumps.push(self.Quad.size() - 1)
+
+    def exitStatement(self, ctx):
+
+        parent = ctx.parentCtx
+
+        # Verificar que pertenece directamente a un if-else
+        if parent.__class__.__name__ != "ConditionContext":
+            return
+
+        if parent.ELSE() is None:
+            return
+
+        statements = parent.statement()
+
+        # Nos interesa únicamente el primer statement (bloque IF)
+        if ctx != statements[0]:
+            return
+
+        # Generar GOTO para saltar el bloque ELSE
+        self.generate_quad(
+            "GOTO",
+            "-",
+            "-",
+            None
+        )
+
+        # Guardar la posición del GOTO
+        goto_position = self.Quad.size() - 1
+
+        # Completar el GotoF para que apunte al ELSE
+        false_jump = self.Pjumps.pop()
+
+        self.fill_jump(
+            false_jump,
+            self.Quad.size() + 1
+        )
+
+        # Guardar el GOTO pendiente
+        self.Pjumps.push(goto_position)

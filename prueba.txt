@@ -1,11 +1,6 @@
 program prueba;
 
-var a, b, c: int;
-
 main {
-    if (a + b > c) {
-        a = 10;
-    }
+    desconocida(5);
 }
-
 end

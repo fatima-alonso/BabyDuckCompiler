@@ -421,6 +421,8 @@ class SemanticAnalyzer(BabyDuckListener):
         self.expression_types[ctx] = return_type
 
     # Validar instrucciones return
+    
+    
     def exitReturn_stmt(self, ctx):
 
         if self.skip_current_function:
@@ -432,12 +434,14 @@ class SemanticAnalyzer(BabyDuckListener):
             )
             return
 
-        function = self.directory.get_function(self.current_function)
+        function = self.directory.get_function(
+            self.current_function
+        )
 
-        # Si la función no pudo registrarse, no continuar
         if function is None:
             return
 
+        # Registrar que la función contiene una instrucción return
         self.functions_with_return.add(self.current_function)
 
         return_type = function["return_type"]
@@ -446,6 +450,7 @@ class SemanticAnalyzer(BabyDuckListener):
             ctx.expresion()
         )
 
+        # Una función void no debe devolver un valor
         if return_type == "void":
             self.errors.append(
                 f"Error: la función '{self.current_function}' "
@@ -456,6 +461,7 @@ class SemanticAnalyzer(BabyDuckListener):
         if expression_type is None:
             return
 
+        # Validar compatibilidad del tipo de retorno
         if not self.semantic_cube.can_assign(
             return_type,
             expression_type
@@ -465,10 +471,9 @@ class SemanticAnalyzer(BabyDuckListener):
                 f"debe devolver '{return_type}', pero devuelve "
                 f"'{expression_type}'."
             )
+            return
 
-            
 
-       
 
     # Validar instrucciones read
     def exitRead_stmt(self, ctx):
